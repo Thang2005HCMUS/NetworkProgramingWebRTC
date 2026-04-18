@@ -1,0 +1,29 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Lấy code từ repository về máy ảo của GitHub
+    - uses: actions/checkout@v4
+
+    # 2. Cài đặt môi trường Node.js
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    # 3. Cài đặt các thư viện phụ thuộc
+    - name: Install dependencies
+      run: npm install
+
+    # 4. Chạy lệnh build hoặc test
+    - name: Run test
+      run: npm test
