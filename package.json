@@ -3,14 +3,19 @@
   "version": "1.0.0",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "test": "jest"
+    "start": "node src/server.js",
+    "test": "mocha tests/**/*.test.js --exit",
+    "test:jest": "jest"
   },
   "dependencies": {
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "socket.io": "^4.7.5"
   },
   "devDependencies": {
+    "chai": "^4.3.10",
     "jest": "^30.3.0",
+    "mocha": "^10.2.0",
+    "socket.io-client": "^4.7.5",
     "supertest": "^7.2.2"
   }
 }

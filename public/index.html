@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Multi-User Video Call</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .status-idle { color: #10b981; }
+        .status-busy { color: #ef4444; }
+        video { background: #1a1a1a; border-radius: 12px; transform: scaleX(-1); }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="login-screen" class="flex items-center justify-center min-h-screen">
+        <div class="bg-white p-8 rounded-xl shadow-lg w-96">
+            <h2 class="text-2xl font-bold mb-4 text-center">Đăng nhập</h2>
+            <input id="username-input" type="text" placeholder="Nhập tên của bạn..." class="w-full p-2 border rounded mb-4 outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="login()" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">Tham gia</button>
+        </div>
+    </div>
+
+    <div id="main-screen" class="hidden container mx-auto p-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Sidebar: Danh sách người dùng -->
+            <div class="bg-white p-4 rounded-xl shadow-md h-[600px] flex flex-col">
+                <h3 class="font-bold text-lg mb-4 border-b pb-2">Người dùng online</h3>
+                <div id="user-list" class="flex-grow overflow-y-auto space-y-2">
+                    <!-- Danh sách người dùng sẽ render ở đây -->
+                </div>
+                <div class="mt-4 text-sm text-gray-500 italic">ID của bạn: <span id="my-id"></span></div>
+            </div>
+
+            <!-- Khu vực Video -->
+            <div class="md:col-span-3 bg-white p-6 rounded-xl shadow-md relative">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="relative">
+                        <p class="text-sm font-semibold mb-2 text-gray-600">Bạn</p>
+                        <video id="localVideo" class="w-full h-auto" autoplay playsinline muted></video>
+                    </div>
+                    <div class="relative">
+                        <p class="text-sm font-semibold mb-2 text-gray-600">Đối phương</p>
+                        <video id="remoteVideo" class="w-full h-auto" autoplay playsinline></video>
+                    </div>
+                </div>
+
+                <div id="call-controls" class="hidden mt-6 flex justify-center gap-4">
+                    <button onclick="endCall()" class="bg-red-500 text-white px-6 py-2 rounded-full hover:bg-red-600 shadow-lg">Kết thúc cuộc gọi</button>
+                </div>
+                
+                <div id="status-overlay" class="absolute inset-0 bg-black/50 hidden flex items-center justify-center rounded-xl">
+                    <div class="bg-white p-6 rounded-lg text-center shadow-2xl">
+                        <p id="status-text" class="text-lg font-bold mb-4"></p>
+                        <div id="incoming-actions" class="hidden flex gap-4 justify-center">
+                            <button id="accept-btn" class="bg-green-500 text-white px-6 py-2 rounded">Chấp nhận</button>
+                            <button id="decline-btn" class="bg-red-500 text-white px-6 py-2 rounded">Từ chối</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let myId, myName, ws, localStream, peerConnection, currentTargetId;
+        currentTargetId = null;
+        peerConnection = null;
+        let tmpId = null;
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        function login() {
+            const name = document.getElementById('username-input').value;
+            if (!name) return alert("Vui lòng nhập tên!");
+            myName = name;
+            
+            const serverIp = window.location.hostname;
+            ws = new WebSocket(`wss://${serverIp}:3000`);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'login', username: myName }));
+            };
+
+            ws.onmessage = handleServerMessage;
+            
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('main-screen').classList.remove('hidden');
+
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                .then(stream => {
+                    localStream = stream;
+                    document.getElementById('localVideo').srcObject = stream;
+                });
+        }
+
+        function handleServerMessage(event) {
+            const msg = JSON.parse(event.data);
+
+            switch(msg.type) {
+                case 'login-success':
+                    myId = msg.id;
+                    document.getElementById('my-id').innerText = myId;
+                    break;
+                case 'user-list':
+                    updateUserList(msg.users);
+                    break;
+                case 'incoming-call':
+                    showIncomingCall(msg.fromId, msg.fromName);
+                    break;
+                case 'call-response':
+                    handleCallResponse(msg.response, msg.targetId);
+                    break;
+                case 'signal':
+                    handleSignal(msg.data, msg.fromId);
+                    break;
+                case 'end-call':
+                    resetUI();
+                    break;
+            }
+        }
+
+        function updateUserList(users) {
+            const container = document.getElementById('user-list');
+            container.innerHTML = '';
+            users.forEach(user => {
+                if (user.id === myId) return;
+                const div = document.createElement('div');
+                div.className = "flex items-center justify-between p-3 bg-gray-50 rounded hover:bg-gray-100 transition";
+                div.innerHTML = `
+                    <div>
+                        <div class="font-medium">${user.username}</div>
+                        <div class="text-xs ${user.status === 'idle' ? 'status-idle' : 'status-busy'}">
+                            ● ${user.status === 'idle' ? 'Sẵn sàng' : 'Đang bận'}
+                        </div>
+                    </div>
+                    ${user.status === 'idle' ? 
+                        `<button onclick="requestCall('${user.id}')" class="bg-blue-500 text-white text-xs px-3 py-1 rounded hover:bg-blue-600">Gọi</button>` 
+                        : ''}
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function requestCall(id) {
+            tmpId = id;
+            showStatus("Đang gọi...");
+            ws.send(JSON.stringify({ type: 'request-call', targetId: id }));
+        }
+
+        function showIncomingCall(fromId, fromName) {
+            currentTargetId = fromId;
+            showStatus(`Cuộc gọi đến từ: ${fromName}`);
+            document.getElementById('incoming-actions').classList.remove('hidden');
+            
+            document.getElementById('accept-btn').onclick = () => {
+                ws.send(JSON.stringify({ type: 'call-response', response: 'accepted', callerId: fromId }));
+                document.getElementById('incoming-actions').classList.add('hidden');
+                initiatePeerConnection(fromId, false);
+            };
+            
+            document.getElementById('decline-btn').onclick = () => {
+                ws.send(JSON.stringify({ type: 'call-response', response: 'declined', callerId: fromId }));
+                resetUI();
+            };
+        }
+
+        async function handleCallResponse(response, targetId) {
+            if (response === 'accepted') {
+                if(peerConnection!=null) {
+                    peerConnection.close();
+                    }
+             if(currentTargetId != null){
+                    endCall();
+                }
+                currentTargetId = targetId;
+                showStatus("Đang kết nối1...");
+                initiatePeerConnection(targetId, true);
+            } else if (response === 'busy') {
+                alert("Người này đang bận.");
+                resetUI();
+            } else {
+                alert("Cuộc gọi bị từ chối.");
+                resetUI();
+            }
+        }
+
+        async function initiatePeerConnection(targetId, isCaller) {
+            peerConnection = new RTCPeerConnection(config);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.ontrack = e => {
+                document.getElementById('remoteVideo').srcObject = e.streams[0];
+                hideStatus();
+                document.getElementById('call-controls').classList.remove('hidden');
+            };
+
+            peerConnection.onicecandidate = e => {
+                if (e.candidate) {
+                    ws.send(JSON.stringify({ type: 'signal', targetId, data: { candidate: e.candidate } }));
+                }
+            };
+
+            if (isCaller) {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                ws.send(JSON.stringify({ type: 'signal', targetId, data: { offer } }));
+            }
+        }
+
+        async function handleSignal(data, fromId) {
+            if (!peerConnection) await initiatePeerConnection(fromId, false);
+            
+            if (data.offer) {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                ws.send(JSON.stringify({ type: 'signal', targetId: fromId, data: { answer } }));
+            } else if (data.answer) {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            } else if (data.candidate) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+            }
+        }
+
+        function endCall() {
+            ws.send(JSON.stringify({ type: 'end-call', targetId: currentTargetId }));
+            resetUI();
+        }
+
+        function resetUI() {
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            document.getElementById('remoteVideo').srcObject = null;
+            document.getElementById('call-controls').classList.add('hidden');
+            hideStatus();
+            document.getElementById('incoming-actions').classList.add('hidden');
+            currentTargetId = null;
+        }
+
+        function showStatus(text) {
+            document.getElementById('status-overlay').classList.remove('hidden');
+            document.getElementById('status-text').innerText = text;
+        }
+
+        function hideStatus() {
+            document.getElementById('status-overlay').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
