@@ -1,68 +1,285 @@
+// server.js
 const fs = require('fs');
 const https = require('https');
 const express = require('express');
 const WebSocket = require('ws');
 const path = require('path');
-const handlers = require('./Handlers');
+
 const app = express();
-const clients = new Map(); // Lưu trữ: id -> { ws, username, status }
+
+/*
+clients:
+ws -> {
+   name: "",
+   roomId: null
+}
+*/
+const clients = new Map();
+
+/*
+rooms:
+roomId -> {
+   members: Map(name -> ws)
+}
+*/
+const rooms = new Map();
 
 let options;
+
 try {
     options = {
         key: fs.readFileSync('./certs/key.pem'),
         cert: fs.readFileSync('./certs/cert.pem')
     };
-} catch (error) {
-    console.error('Lỗi tải chứng chỉ SSL:', error.message);
+} catch (err) {
+    console.error('Lỗi SSL:', err.message);
     process.exit(1);
 }
 
-app.use(express.static(path.join(__dirname, '/../public')));
+app.use(express.static(path.join(__dirname, '../public')));
+
 const server = https.createServer(options, app);
 const wss = new WebSocket.Server({ server });
 
-function broadcastUserList() {
-    const userList = Array.from(clients.entries()).map(([id, client]) => ({
-        id,
-        username: client.username,
-        status: client.status
-    }));
-    const message = JSON.stringify({ type: 'user-list', users: userList });
-    wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
-        }
-    });
+/* =========================
+   HELPER
+========================= */
+
+function send(ws, data) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data));
+    }
 }
 
+function getRoomMembers(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) return [];
+    return Array.from(room.members.keys());
+}
 
+function broadcastRoomMembers(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    const payload = {
+        type: 'roomMembers',
+        roomId,
+        members: getRoomMembers(roomId)
+    };
+
+    for (const ws of room.members.values()) {
+        send(ws, payload);
+    }
+}
+
+function leaveCurrentRoom(ws) {
+    const user = clients.get(ws);
+    if (!user || !user.roomId) return;
+
+    const roomId = user.roomId;
+    const room = rooms.get(roomId);
+
+    if (!room) {
+        user.roomId = null;
+        return;
+    }
+
+    room.members.delete(user.name);
+
+    // báo người khác
+    for (const memberWs of room.members.values()) {
+        send(memberWs, {
+            type: 'memberLeft',
+            roomId,
+            name: user.name
+        });
+    }
+
+    // update danh sách thành viên
+    broadcastRoomMembers(roomId);
+
+    // nếu phòng rỗng thì xóa
+    if (room.members.size === 0) {
+        rooms.delete(roomId);
+    }
+
+    user.roomId = null;
+}
+
+/* =========================
+   WS CONNECTION
+========================= */
 
 wss.on('connection', (ws) => {
-    const clientId = Math.random().toString(36).substring(2, 9);
-    const context = { clients, broadcastUserList };
+    clients.set(ws, {
+        name: null,
+        roomId: null
+    });
 
-    ws.on('message', (data) => {
+    ws.on('message', (message) => {
+        let data;
+
         try {
-            const message = JSON.parse(data);
-            const action = handlers[message.type];
+            data = JSON.parse(message.toString());
+        } catch {
+            return;
+        }
 
-            if (action) {
-                action(message, ws, clientId, context);
-            } else {
-                console.warn(`[Warning] Action không xác định: ${message.type}`);
+        const user = clients.get(ws);
+        if (!user) return;
+
+        switch (data.type) {
+
+            /* =========================
+               register
+               {type,name}
+            ========================= */
+            case 'register': {
+                user.name = data.name?.trim() || 'Unknown';
+
+                send(ws, {
+                    type: 'registered',
+                    name: user.name
+                });
+                break;
             }
-        } catch (e) {
-            console.error('[Error] Lỗi format message:', e.message);
+
+            /* =========================
+               createRoom / joinRoom
+               {type,roomId,name}
+            ========================= */
+            case 'createRoom':
+            case 'joinRoom': {
+                const roomId = data.roomId?.trim();
+                const name = data.name?.trim();
+
+                if (!roomId || !name) return;
+
+                user.name = name;
+
+                // rời phòng cũ nếu có
+                leaveCurrentRoom(ws);
+
+                if (!rooms.has(roomId)) {
+                    rooms.set(roomId, {
+                        members: new Map()
+                    });
+                }
+
+                const room = rooms.get(roomId);
+
+                room.members.set(name, ws);
+                user.roomId = roomId;
+
+                broadcastRoomMembers(roomId);
+                break;
+            }
+            case 'startCall': {
+                const room = rooms.get(data.roomId);
+                if (!room) return;
+
+                // Gửi thông báo "bắt đầu call" cho tất cả mọi người TRỪ người gửi
+                for (const [memberName, memberWs] of room.members) {
+                    if (memberName !== data.sender) {
+                        send(memberWs, {
+                            type: 'startCall',
+                            sender: data.sender
+                        });
+                    }
+                }
+                break;
+            }
+            /* =========================
+               offer
+               {type,roomId,sender,target,offer}
+            ========================= */
+            case 'offer': {
+                const room = rooms.get(data.roomId);
+                if (!room) return;
+
+                const targetWs = room.members.get(data.target);
+                if (!targetWs) return;
+
+                send(targetWs, {
+                    type: 'offer',
+                    roomId: data.roomId,
+                    sender: data.sender,
+                    target: data.target,
+                    offer: data.offer
+                });
+                break;
+            }
+         
+            case 'answer': {
+                const room = rooms.get(data.roomId);
+                if (!room) return;
+
+                const targetWs = room.members.get(data.target);
+                if (!targetWs) return;
+
+                send(targetWs, {
+                    type: 'answer',
+                    roomId: data.roomId,
+                    sender: data.sender,
+                    target: data.target,
+                    answer: data.answer
+                });
+                break;
+            }
+
+            case 'candidate': {
+                const room = rooms.get(data.roomId);
+                if (!room) return;
+
+                const targetWs = room.members.get(data.target);
+                if (!targetWs) return;
+
+                send(targetWs, {
+                    type: 'candidate',
+                    roomId: data.roomId,
+                    sender: data.sender,
+                    target: data.target,
+                    candidate: data.candidate
+                });
+                break;
+            }
+            /* =========================
+               leaveRoom
+               {type,roomId,sender}
+            ========================= */
+            case 'leaveRoom': {
+                leaveCurrentRoom(ws);
+                break;
+            }
+
+            /* =========================
+               endCall
+               {type,roomId,sender}
+            ========================= */
+            case 'endCall': {
+                const room = rooms.get(data.roomId);
+                if (!room) return;
+
+                for (const [memberName, memberWs] of room.members) {
+                    if (memberName !== data.sender) {
+                        send(memberWs, data);
+                    }
+                }
+                break;
+            }
         }
     });
 
     ws.on('close', () => {
-        clients.delete(clientId);
-        broadcastUserList();
+        leaveCurrentRoom(ws);
+        clients.delete(ws);
     });
 });
 
-server.listen(3000, '0.0.0.0', () => {
-    console.log('Server WebRTC đa người dùng chạy tại https://localhost:3000');
+/* =========================
+   START
+========================= */
+
+server.listen(3000, () => {
+    console.log('HTTPS + WS chạy tại https://localhost:3000');
 });

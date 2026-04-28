@@ -1,251 +1,529 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC Multi-User Video Call</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .status-idle { color: #10b981; }
-        .status-busy { color: #ef4444; }
-        video { background: #1a1a1a; border-radius: 12px; transform: scaleX(-1); }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>RoomChat Production Mesh</title>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    font-family:Arial,Helvetica,sans-serif;
+    background:#111;
+    color:#fff;
+}
+#login{
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:20px;
+}
+.panel{
+    width:100%;
+    max-width:420px;
+    background:#1d1d1d;
+    padding:24px;
+    border-radius:14px;
+}
+.panel h2{
+    text-align:center;
+    margin-bottom:14px;
+}
+input{
+    width:100%;
+    padding:12px;
+    margin-bottom:12px;
+    border:none;
+    border-radius:8px;
+}
+button{
+    border:none;
+    padding:10px 14px;
+    border-radius:8px;
+    cursor:pointer;
+}
+.primary{
+    width:100%;
+    background:#0d6efd;
+    color:#fff;
+}
+#app{
+    display:none;
+    padding:12px;
+}
+.topbar{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
+}
+.topbar button{
+    flex:1;
+    min-width:120px;
+}
+.call{background:#198754;color:#fff}
+.end{background:#ff9800;color:#fff}
+.leave{background:#dc3545;color:#fff}
+#members{
+    background:#1c1c1c;
+    padding:10px;
+    border-radius:12px;
+    margin-bottom:12px;
+}
+#members h3{
+    margin-bottom:8px;
+}
+.member{
+    padding:6px 0;
+    border-bottom:1px solid #333;
+}
+.grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:12px;
+}
+@media(max-width:900px){
+    .grid{grid-template-columns:repeat(2,1fr);}
+}
+@media(max-width:600px){
+    .grid{grid-template-columns:1fr;}
+}
+.card{
+    background:#1d1d1d;
+    border-radius:12px;
+    padding:10px;
+    height:260px;
+}
+video{
+    width:100%;
+    height:190px;
+    object-fit:cover;
+    border-radius:8px;
+    background:#000;
+}
+.name{
+    margin-top:8px;
+    text-align:center;
+}
+</style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div id="login-screen" class="flex items-center justify-center min-h-screen">
-        <div class="bg-white p-8 rounded-xl shadow-lg w-96">
-            <h2 class="text-2xl font-bold mb-4 text-center">Đăng nhập</h2>
-            <input id="username-input" type="text" placeholder="Nhập tên của bạn..." class="w-full p-2 border rounded mb-4 outline-none focus:ring-2 focus:ring-blue-500">
-            <button onclick="login()" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">Tham gia</button>
-        </div>
+
+<body>
+
+<div id="login">
+    <div class="panel">
+        <h2>RoomChat Mesh</h2>
+        <input id="nameInput" placeholder="Tên">
+        <input id="roomInput" placeholder="ID phòng">
+        <button class="primary" onclick="joinRoom()">Vào phòng</button>
+    </div>
+</div>
+
+<div id="app">
+    <div class="topbar">
+        <button class="call" onclick="callRoom()">Call phòng</button>
+        <button class="end" onclick="endCall()">End Call</button>
+        <button class="leave" onclick="leaveRoom()">Rời phòng</button>
     </div>
 
-    <div id="main-screen" class="hidden container mx-auto p-4">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <!-- Sidebar: Danh sách người dùng -->
-            <div class="bg-white p-4 rounded-xl shadow-md h-[600px] flex flex-col">
-                <h3 class="font-bold text-lg mb-4 border-b pb-2">Người dùng online</h3>
-                <div id="user-list" class="flex-grow overflow-y-auto space-y-2">
-                    <!-- Danh sách người dùng sẽ render ở đây -->
-                </div>
-                <div class="mt-4 text-sm text-gray-500 italic">ID của bạn: <span id="my-id"></span></div>
-            </div>
-
-            <!-- Khu vực Video -->
-            <div class="md:col-span-3 bg-white p-6 rounded-xl shadow-md relative">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="relative">
-                        <p class="text-sm font-semibold mb-2 text-gray-600">Bạn</p>
-                        <video id="localVideo" class="w-full h-auto" autoplay playsinline muted></video>
-                    </div>
-                    <div class="relative">
-                        <p class="text-sm font-semibold mb-2 text-gray-600">Đối phương</p>
-                        <video id="remoteVideo" class="w-full h-auto" autoplay playsinline></video>
-                    </div>
-                </div>
-
-                <div id="call-controls" class="hidden mt-6 flex justify-center gap-4">
-                    <button onclick="endCall()" class="bg-red-500 text-white px-6 py-2 rounded-full hover:bg-red-600 shadow-lg">Kết thúc cuộc gọi</button>
-                </div>
-                
-                <div id="status-overlay" class="absolute inset-0 bg-black/50 hidden flex items-center justify-center rounded-xl">
-                    <div class="bg-white p-6 rounded-lg text-center shadow-2xl">
-                        <p id="status-text" class="text-lg font-bold mb-4"></p>
-                        <div id="incoming-actions" class="hidden flex gap-4 justify-center">
-                            <button id="accept-btn" class="bg-green-500 text-white px-6 py-2 rounded">Chấp nhận</button>
-                            <button id="decline-btn" class="bg-red-500 text-white px-6 py-2 rounded">Từ chối</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div id="members">
+        <h3 id="roomTitle"></h3>
+        <div id="memberBox"></div>
     </div>
 
-    <script>
-        let myId, myName, ws, localStream, peerConnection, currentTargetId;
-        currentTargetId = null;
-        peerConnection = null;
-        let tmpId = null;
-        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    <div class="grid" id="grid"></div>
+</div>
 
-        function login() {
-            const name = document.getElementById('username-input').value;
-            if (!name) return alert("Vui lòng nhập tên!");
-            myName = name;
-            
-            const serverIp = window.location.hostname;
-            ws = new WebSocket(`wss://${serverIp}:3000`);
+<script>
+const ws = new WebSocket(`wss://${location.host}`);
 
-            ws.onopen = () => {
-                ws.send(JSON.stringify({ type: 'login', username: myName }));
-            };
+let myName = "";
+let roomId = "";
+let members = [];
+let localStream = null;
+let inCall = false;
 
-            ws.onmessage = handleServerMessage;
-            
-            document.getElementById('login-screen').classList.add('hidden');
-            document.getElementById('main-screen').classList.remove('hidden');
+/*
+peerState[target] = {
+   pc,
+   makingOffer,
+   ignoreOffer,
+   polite
+}
+*/
+const peerState = {};
 
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                .then(stream => {
-                    localStream = stream;
-                    document.getElementById('localVideo').srcObject = stream;
-                });
+const rtcConfig = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { 
+            urls: 'turn:192.168.1.7', 
+            username: 'thang', 
+            credential: '123456' 
         }
+    ]
+};
 
-        function handleServerMessage(event) {
-            const msg = JSON.parse(event.data);
+/* =========================
+   WS
+========================= */
 
-            switch(msg.type) {
-                case 'login-success':
-                    myId = msg.id;
-                    document.getElementById('my-id').innerText = myId;
-                    break;
-                case 'user-list':
-                    updateUserList(msg.users);
-                    break;
-                case 'incoming-call':
-                    showIncomingCall(msg.fromId, msg.fromName);
-                    break;
-                case 'call-response':
-                    handleCallResponse(msg.response, msg.targetId);
-                    break;
-                case 'signal':
-                    handleSignal(msg.data, msg.fromId);
-                    break;
-                case 'end-call':
-                    resetUI();
-                    break;
+ws.onmessage = async(e)=>{
+    const data = JSON.parse(e.data);
+
+    switch(data.type){
+
+        case "roomMembers":
+            members = data.members;
+            renderMembers();
+            renderGrid();
+
+            if(inCall){
+                ensureMesh();
             }
-        }
-
-        function updateUserList(users) {
-            const container = document.getElementById('user-list');
-            container.innerHTML = '';
-            users.forEach(user => {
-                if (user.id === myId) return;
-                const div = document.createElement('div');
-                div.className = "flex items-center justify-between p-3 bg-gray-50 rounded hover:bg-gray-100 transition";
-                div.innerHTML = `
-                    <div>
-                        <div class="font-medium">${user.username}</div>
-                        <div class="text-xs ${user.status === 'idle' ? 'status-idle' : 'status-busy'}">
-                            ● ${user.status === 'idle' ? 'Sẵn sàng' : 'Đang bận'}
-                        </div>
-                    </div>
-                    ${user.status === 'idle' ? 
-                        `<button onclick="requestCall('${user.id}')" class="bg-blue-500 text-white text-xs px-3 py-1 rounded hover:bg-blue-600">Gọi</button>` 
-                        : ''}
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        function requestCall(id) {
-            tmpId = id;
-            showStatus("Đang gọi...");
-            ws.send(JSON.stringify({ type: 'request-call', targetId: id }));
-        }
-
-        function showIncomingCall(fromId, fromName) {
-            currentTargetId = fromId;
-            showStatus(`Cuộc gọi đến từ: ${fromName}`);
-            document.getElementById('incoming-actions').classList.remove('hidden');
-            
-            document.getElementById('accept-btn').onclick = () => {
-                ws.send(JSON.stringify({ type: 'call-response', response: 'accepted', callerId: fromId }));
-                document.getElementById('incoming-actions').classList.add('hidden');
-                initiatePeerConnection(fromId, false);
-            };
-            
-            document.getElementById('decline-btn').onclick = () => {
-                ws.send(JSON.stringify({ type: 'call-response', response: 'declined', callerId: fromId }));
-                resetUI();
-            };
-        }
-
-        async function handleCallResponse(response, targetId) {
-            if (response === 'accepted') {
-                if(peerConnection!=null) {
-                    peerConnection.close();
-                    }
-             if(currentTargetId != null){
-                    endCall();
-                }
-                currentTargetId = targetId;
-                showStatus("Đang kết nối1...");
-                initiatePeerConnection(targetId, true);
-            } else if (response === 'busy') {
-                alert("Người này đang bận.");
-                resetUI();
-            } else {
-                alert("Cuộc gọi bị từ chối.");
-                resetUI();
+        break;
+        case "startCall":
+            if(!inCall) {
+                inCall = true;
+                ensureMesh();
             }
+        break;
+        case "offer":
+            await onOffer(data);
+        break;
+
+        case "answer":
+            await onAnswer(data);
+        break;
+
+        case "candidate":
+            await onCandidate(data);
+        break;
+
+        case "memberLeft":
+            removePeer(data.name);
+            members = members.filter(x=>x!==data.name);
+            renderMembers();
+            renderGrid();
+        break;
+
+        case "endCall":
+            removePeer(data.sender);
+        break;
+    }
+};
+
+/* =========================
+   JOIN
+========================= */
+
+async function joinRoom(){
+
+    myName = document.getElementById("nameInput").value.trim();
+    roomId = document.getElementById("roomInput").value.trim();
+
+    if(!myName || !roomId) return;
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+        video:true,
+        audio:true
+    });
+
+    ws.send(JSON.stringify({
+        type:"register",
+        name:myName
+    }));
+
+    ws.send(JSON.stringify({
+        type:"joinRoom",
+        roomId,
+        name:myName
+    }));
+
+    document.getElementById("login").style.display="none";
+    document.getElementById("app").style.display="block";
+    document.getElementById("roomTitle").innerText = "Phòng: " + roomId;
+}
+
+/* =========================
+   UI
+========================= */
+
+function renderMembers(){
+    const box = document.getElementById("memberBox");
+    box.innerHTML = "";
+
+    members.forEach(name=>{
+        const div = document.createElement("div");
+        div.className="member";
+        div.innerText=name;
+        box.appendChild(div);
+    });
+}
+
+function renderGrid(){
+
+    const grid = document.getElementById("grid");
+    grid.innerHTML="";
+
+    members.forEach(name=>{
+
+        const card = document.createElement("div");
+        card.className="card";
+
+        const video = document.createElement("video");
+        video.autoplay=true;
+        video.playsInline=true;
+        video.id="video_"+name;
+
+        if(name===myName && localStream){
+            video.muted=true;
+            video.srcObject=localStream;
         }
 
-        async function initiatePeerConnection(targetId, isCaller) {
-            peerConnection = new RTCPeerConnection(config);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        const label = document.createElement("div");
+        label.className="name";
+        label.innerText=name;
 
-            peerConnection.ontrack = e => {
-                document.getElementById('remoteVideo').srcObject = e.streams[0];
-                hideStatus();
-                document.getElementById('call-controls').classList.remove('hidden');
-            };
+        card.appendChild(video);
+        card.appendChild(label);
 
-            peerConnection.onicecandidate = e => {
-                if (e.candidate) {
-                    ws.send(JSON.stringify({ type: 'signal', targetId, data: { candidate: e.candidate } }));
-                }
-            };
+        grid.appendChild(card);
+    });
+}
 
-            if (isCaller) {
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                ws.send(JSON.stringify({ type: 'signal', targetId, data: { offer } }));
-            }
+/* =========================
+   CALL CONTROL
+========================= */
+
+function callRoom(){
+    inCall = true;
+    // Gửi tín hiệu để kích hoạt Mesh trên toàn bộ client trong phòng
+    ws.send(JSON.stringify({
+        type: "startCall",
+        roomId,
+        sender: myName
+    }));
+    ensureMesh();
+}
+
+function endCall(){
+
+    inCall = false;
+
+    Object.keys(peerState).forEach(name=>{
+        removePeer(name);
+    });
+
+    ws.send(JSON.stringify({
+        type:"endCall",
+        roomId,
+        sender:myName
+    }));
+}
+
+function ensureMesh(){
+
+    for(const user of members){
+
+        if(user === myName) continue;
+
+        if(!peerState[user]){
+            createPeer(user);
         }
+    }
+}
 
-        async function handleSignal(data, fromId) {
-            if (!peerConnection) await initiatePeerConnection(fromId, false);
-            
-            if (data.offer) {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                ws.send(JSON.stringify({ type: 'signal', targetId: fromId, data: { answer } }));
-            } else if (data.answer) {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-            } else if (data.candidate) {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            }
-        }
+/* =========================
+   PEER
+========================= */
 
-        function endCall() {
-            ws.send(JSON.stringify({ type: 'end-call', targetId: currentTargetId }));
-            resetUI();
-        }
+function createPeer(target){
 
-        function resetUI() {
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
-            }
-            document.getElementById('remoteVideo').srcObject = null;
-            document.getElementById('call-controls').classList.add('hidden');
-            hideStatus();
-            document.getElementById('incoming-actions').classList.add('hidden');
-            currentTargetId = null;
-        }
+    const polite = myName.localeCompare(target) > 0;
 
-        function showStatus(text) {
-            document.getElementById('status-overlay').classList.remove('hidden');
-            document.getElementById('status-text').innerText = text;
-        }
+    const pc = new RTCPeerConnection(rtcConfig);
 
-        function hideStatus() {
-            document.getElementById('status-overlay').classList.add('hidden');
+    const state = {
+        pc,
+        makingOffer:false,
+        ignoreOffer:false,
+        polite
+    };
+
+    peerState[target]=state;
+
+    localStream.getTracks().forEach(track=>{
+        pc.addTrack(track, localStream);
+    });
+
+    pc.ontrack = (event)=>{
+        const video = document.getElementById("video_"+target);
+        if(video){
+            video.srcObject = event.streams[0];
         }
-    </script>
+    };
+
+    pc.onicecandidate = ({candidate})=>{
+        if(candidate){
+            ws.send(JSON.stringify({
+                type:"candidate",
+                roomId,
+                sender:myName,
+                target,
+                candidate
+            }));
+        }
+    };
+
+    pc.onnegotiationneeded = async()=>{
+
+        try{
+            state.makingOffer = true;
+
+            await pc.setLocalDescription(
+                await pc.createOffer()
+            );
+
+            ws.send(JSON.stringify({
+                type:"offer",
+                roomId,
+                sender:myName,
+                target,
+                offer:pc.localDescription
+            }));
+
+        }catch(err){
+            console.log(err);
+        }finally{
+            state.makingOffer = false;
+        }
+    };
+
+    pc.onconnectionstatechange = ()=>{
+
+        if(
+            pc.connectionState === "failed" ||
+            pc.connectionState === "closed" ||
+            pc.connectionState === "disconnected"
+        ){
+            removePeer(target);
+        }
+    };
+
+    return state;
+}
+
+/* =========================
+   SIGNALING
+========================= */
+
+async function onOffer(data){
+
+    let state = peerState[data.sender];
+
+    if(!state){
+        state = createPeer(data.sender);
+    }
+
+    const pc = state.pc;
+
+    const offerCollision =
+        data.offer.type === "offer" &&
+        (state.makingOffer || pc.signalingState !== "stable");
+
+    state.ignoreOffer = !state.polite && offerCollision;
+
+    if(state.ignoreOffer) return;
+
+    try{
+
+        await pc.setRemoteDescription(data.offer);
+
+        await pc.setLocalDescription(
+            await pc.createAnswer()
+        );
+
+        ws.send(JSON.stringify({
+            type:"answer",
+            roomId,
+            sender:myName,
+            target:data.sender,
+            answer:pc.localDescription
+        }));
+
+    }catch(err){
+        console.log(err);
+    }
+}
+
+async function onAnswer(data){
+
+    const state = peerState[data.sender];
+    if(!state) return;
+
+    try{
+        await state.pc.setRemoteDescription(data.answer);
+    }catch(err){
+        console.log(err);
+    }
+}
+
+async function onCandidate(data){
+
+    const state = peerState[data.sender];
+    if(!state) return;
+
+    try{
+        await state.pc.addIceCandidate(data.candidate);
+    }catch(err){
+
+        if(!state.ignoreOffer){
+            console.log(err);
+        }
+    }
+}
+
+/* =========================
+   REMOVE
+========================= */
+
+function removePeer(name){
+
+    const state = peerState[name];
+    if(!state) return;
+
+    state.pc.close();
+    delete peerState[name];
+
+    const video = document.getElementById("video_"+name);
+    if(video && name !== myName){
+        video.srcObject = null;
+    }
+}
+
+/* =========================
+   LEAVE
+========================= */
+
+function leaveRoom(){
+
+    endCall();
+
+    ws.send(JSON.stringify({
+        type:"leaveRoom",
+        roomId,
+        sender:myName
+    }));
+
+    if(localStream){
+        localStream.getTracks().forEach(t=>t.stop());
+    }
+
+    location.reload();
+}
+</script>
+
 </body>
 </html>
