@@ -283,3 +283,5 @@ wss.on('connection', (ws) => {
 server.listen(3000, () => {
     console.log('HTTPS + WS chạy tại https://localhost:3000');
 });
+
+module.exports = { app };

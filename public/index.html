@@ -149,7 +149,8 @@ peerState[target] = {
    pc,
    makingOffer,
    ignoreOffer,
-   polite
+   polite,
+   remoteStream
 }
 */
 const peerState = {};
@@ -158,9 +159,9 @@ const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { 
-            urls: 'turn:192.168.1.7', 
+            urls: 'turn:54.146.22.145:3478', 
             username: 'thang', 
-            credential: '123456' 
+            credential: '051317' 
         }
     ]
 };
@@ -280,6 +281,8 @@ function renderGrid(){
         if(name===myName && localStream){
             video.muted=true;
             video.srcObject=localStream;
+        } else if(peerState[name] && peerState[name].remoteStream){
+            video.srcObject = peerState[name].remoteStream;
         }
 
         const label = document.createElement("div");
@@ -360,8 +363,9 @@ function createPeer(target){
 
     pc.ontrack = (event)=>{
         const video = document.getElementById("video_"+target);
+        state.remoteStream = event.streams[0];
         if(video){
-            video.srcObject = event.streams[0];
+            video.srcObject = state.remoteStream;
         }
     };
 
@@ -495,6 +499,7 @@ function removePeer(name){
     if(!state) return;
 
     state.pc.close();
+    state.remoteStream = null;
     delete peerState[name];
 
     const video = document.getElementById("video_"+name);
