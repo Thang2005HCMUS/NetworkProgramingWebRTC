@@ -184,6 +184,15 @@ ws.onmessage = async(e)=>{
                 ensureMesh();
             }
         break;
+        case "error":
+            alert("Lỗi từ hệ thống: " + data.message);
+            document.getElementById("login").style.display = "flex";
+            document.getElementById("app").style.display = "none";
+            if(localStream){
+                localStream.getTracks().forEach(t => t.stop());
+                localStream = null;
+            }
+        break;
         case "startCall":
             if(!inCall) {
                 inCall = true;
