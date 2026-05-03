@@ -219,7 +219,16 @@ ws.onmessage = async(e)=>{
         break;
 
         case "endCall":
+            console.log(`Người dùng ${data.sender} đã kết thúc cuộc gọi.`);
+            const statusEl = document.getElementById("status_" + data.sender);
+            if (statusEl) {
+                statusEl.innerText = "Status: End Call";
+                statusEl.style.color = "#ffc107";
+             }
+            setTimeout(() => {
             removePeer(data.sender);
+            renderGrid(); 
+            }, 2000);
         break;
     }
 };
@@ -281,6 +290,18 @@ function renderGrid(){
 
         const card = document.createElement("div");
         card.className="card";
+        
+        if (name !== myName) {
+            const statusLabel = document.createElement("div");
+            statusLabel.className = "status-label";
+            statusLabel.id = "status_" + name;
+            
+            const currentState = peerState[name]?.pc?.connectionState || "new";
+            statusLabel.innerText = "Status: " + currentState;
+            statusLabel.style.fontSize = "12px";
+            statusLabel.style.color = (currentState === "connected") ? "#198754" : "#aaa";
+            card.appendChild(statusLabel);
+        }
 
         const video = document.createElement("video");
         video.autoplay=true;
@@ -300,7 +321,6 @@ function renderGrid(){
 
         card.appendChild(video);
         card.appendChild(label);
-
         grid.appendChild(card);
     });
 }
@@ -356,16 +376,27 @@ function createPeer(target){
     const polite = myName.localeCompare(target) > 0;
 
     const pc = new RTCPeerConnection(rtcConfig);
+    const timeoutId = setTimeout(() => {
+        const statusEl = document.getElementById("status_" + target);
+        if (pc.connectionState !== "connected") {
+            if (statusEl) {
+                statusEl.innerText = "Startus: P2P failed, trying TURN....";
+                statusEl.style.color = "#ff9800";
+            }
+            console.warn(`[Fallback] ${target} chậm kết nối, đang ưu tiên relay qua TURN.`);
+        }
+    }, 15000);
 
     const state = {
         pc,
         makingOffer:false,
         ignoreOffer:false,
-        polite
+        polite,
+        timeoutId: timeoutId
     };
 
     peerState[target]=state;
-
+    
     localStream.getTracks().forEach(track=>{
         pc.addTrack(track, localStream);
     });
@@ -415,13 +446,32 @@ function createPeer(target){
     };
 
     pc.onconnectionstatechange = ()=>{
-
+        const statusEl = document.getElementById("status_" + target);
+        const state = pc.connectionState;
+        
+        if (statusEl) {
+            statusEl.innerText = "Status: " + state;
+            
+            if (state === "connected") {
+                statusEl.style.color = "#198754";
+                clearTimeout(timeoutId);
+            } else if (state === "failed") {
+                statusEl.style.color = "#dc3545";
+                clearTimeout(timeoutId);
+            } else if (state === "connecting") {
+                statusEl.style.color = "#0dcaf0";
+            } else if (state === "disconnected") {
+                statusEl.style.color = "#ffc107"
+            }
+        }
         if(
             pc.connectionState === "failed" ||
             pc.connectionState === "closed" ||
             pc.connectionState === "disconnected"
         ){
-            removePeer(target);
+            setTimeout(() => {
+                if (peerState[target]) removePeer(target);
+            }, 3000);
         }
     };
 
