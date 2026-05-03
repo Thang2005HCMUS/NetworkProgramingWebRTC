@@ -154,6 +154,16 @@ wss.on('connection', (ws) => {
                 const name = data.name?.trim();
 
                 if (!roomId || !name) return;
+                if (rooms.has(roomId)){
+                    const room = rooms.get(roomId);
+                    if(room.members.has(name)) {
+                        send(ws, {
+                            type: 'error',
+                            message: `Tên "${name}" đã tồn tại trong phòng ${roomId}. Vui lòng chọn tên khác.`
+                        });
+                        return;
+                    }
+                }
 
                 user.name = name;
 
