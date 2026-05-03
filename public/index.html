@@ -65,11 +65,37 @@ button{
 .call{background:#198754;color:#fff}
 .end{background:#ff9800;color:#fff}
 .leave{background:#dc3545;color:#fff}
+.hidden{display:none !important}
 #members{
     background:#1c1c1c;
     padding:10px;
     border-radius:12px;
     margin-bottom:12px;
+}
+/* VM */
+#notices{
+    position:fixed;
+    right:16px;
+    bottom:16px;
+    width:280px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    z-index:999;
+}
+.notice{
+    background:#1f2937;
+    border:1px solid #374151;
+    padding:10px 12px;
+    border-radius:10px;
+    font-size:0.9rem;
+    color:#f1f5f9;
+    box-shadow:0 8px 20px rgba(0,0,0,0.35);
+    animation:toastIn 180ms ease-out;
+}
+@keyframes toastIn{
+    from{opacity:0;transform:translateY(6px)}
+    to{opacity:1;transform:translateY(0)}
 }
 #members h3{
     margin-bottom:8px;
@@ -123,7 +149,7 @@ video{
 <div id="app">
     <div class="topbar">
         <button class="call" onclick="callRoom()">Call phòng</button>
-        <button class="end" onclick="endCall()">End Call</button>
+        <button id="btn-end-call" class="end" onclick="endCall()">End Call</button>
         <button class="leave" onclick="leaveRoom()">Rời phòng</button>
     </div>
 
@@ -131,6 +157,8 @@ video{
         <h3 id="roomTitle"></h3>
         <div id="memberBox"></div>
     </div>
+    <!-- VM -->
+    <div id="notices"></div>
 
     <div class="grid" id="grid"></div>
 </div>
@@ -143,6 +171,9 @@ let roomId = "";
 let members = [];
 let localStream = null;
 let inCall = false;
+let roomOwner = "";
+
+const endCallBtn = document.getElementById("btn-end-call");
 
 /*
 peerState[target] = {
@@ -154,6 +185,21 @@ peerState[target] = {
 }
 */
 const peerState = {};
+
+// VM
+function addNotice(message){
+    const box = document.getElementById("notices");
+    if(!box) return;
+
+    const div = document.createElement("div");
+    div.className = "notice";
+    div.innerText = message;
+    box.prepend(div);
+
+    setTimeout(()=>{
+        div.remove();
+    }, 6000);
+}
 
 const rtcConfig = {
     iceServers: [
@@ -177,6 +223,10 @@ ws.onmessage = async(e)=>{
 
         case "roomMembers":
             members = data.members;
+            if(!roomOwner || !members.includes(roomOwner)){
+                roomOwner = members[0] || "";
+            }
+            updateEndCallVisibility();
             renderMembers();
             renderGrid();
 
@@ -202,7 +252,8 @@ ws.onmessage = async(e)=>{
             await onCandidate(data);
         break;
 
-        case "memberLeft":
+        case "memberLeft": 
+            addNotice(data.name + " đã rời phòng."); //VM
             removePeer(data.name);
             members = members.filter(x=>x!==data.name);
             renderMembers();
@@ -210,7 +261,9 @@ ws.onmessage = async(e)=>{
         break;
 
         case "endCall":
-            removePeer(data.sender);
+            inCall = false;
+            endAllPeers();
+            addNotice(data.sender + " đã kết thúc cuộc gọi.");
         break;
     }
 };
@@ -313,17 +366,32 @@ function callRoom(){
 
 function endCall(){
 
+    if(roomOwner && myName !== roomOwner) return;
+
     inCall = false;
 
-    Object.keys(peerState).forEach(name=>{
-        removePeer(name);
-    });
+    endAllPeers();
 
     ws.send(JSON.stringify({
         type:"endCall",
         roomId,
         sender:myName
     }));
+}
+
+function endAllPeers(){
+    Object.keys(peerState).forEach(name=>{
+        removePeer(name);
+    });
+}
+
+function updateEndCallVisibility(){
+    if(!endCallBtn) return;
+    if(roomOwner && myName === roomOwner){
+        endCallBtn.classList.remove("hidden");
+    } else {
+        endCallBtn.classList.add("hidden");
+    }
 }
 
 function ensureMesh(){

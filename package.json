@@ -1,15 +1,18 @@
 {
   "name": "my-express-app",
   "version": "1.0.0",
-  "main": "src/index.js",
+  "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "test": "mocha tests/**/*.test.js --exit",
     "test:jest": "jest"
   },
   "dependencies": {
-    "express": "^4.21.0",
-    "socket.io": "^4.7.5"
+    "express": "^4.22.1",
+    "fs": "^0.0.1-security",
+    "https": "^1.0.0",
+    "socket.io": "^4.7.5",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "chai": "^4.3.10",
