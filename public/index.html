@@ -270,6 +270,7 @@ ws.onmessage = async(e)=>{
         break;
 
         case "endCall":
+
             inCall = false;
             endAllPeers();
             addNotice(data.sender + " đã kết thúc cuộc gọi.");
@@ -563,7 +564,8 @@ function createPeer(target){
         }
         if(
             pc.connectionState === "failed" ||
-            pc.connectionState === "closed" 
+            pc.connectionState === "closed" ||
+            pc.connectionState === "disconnected"
         ){
             setTimeout(() => {
                 if (peerState[target]) removePeer(target);
