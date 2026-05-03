@@ -219,7 +219,6 @@ ws.onmessage = async(e)=>{
         break;
 
         case "endCall":
-            console.log(`Người dùng ${data.sender} đã kết thúc cuộc gọi.`);
             const statusEl = document.getElementById("status_" + data.sender);
             if (statusEl) {
                 statusEl.innerText = "Status: End Call";
@@ -268,6 +267,20 @@ async function joinRoom(){
 /* =========================
    UI
 ========================= */
+async function checkCandidateType(pc, target) {
+    try {
+        const stats = await pc.getStats();
+        stats.forEach(report => {
+            // Tìm loại candidate cục bộ đang được sử dụng
+            if (report.type === "local-candidate") {
+                const type = report.candidateType; // host, srflx, hoặc relay
+                console.log(`%c[Stats - ${target}] Loại Candidate: ${type.toUpperCase()}`, "color: #00ff00; font-weight: bold;");
+            }
+        });
+    } catch (e) {
+        console.error("Lỗi lấy stats:", e);
+    }
+}
 
 function renderMembers(){
     const box = document.getElementById("memberBox");
@@ -376,11 +389,12 @@ function createPeer(target){
     const polite = myName.localeCompare(target) > 0;
 
     const pc = new RTCPeerConnection(rtcConfig);
+    console.log(`[${target}] Khởi tạo kết nối lúc: ${new Date().toLocaleTimeString()}`);
     const timeoutId = setTimeout(() => {
         const statusEl = document.getElementById("status_" + target);
         if (pc.connectionState !== "connected") {
             if (statusEl) {
-                statusEl.innerText = "Startus: P2P failed, trying TURN....";
+                statusEl.innerText = "Status: P2P failed, trying TURN....";
                 statusEl.style.color = "#ff9800";
             }
             console.warn(`[Fallback] ${target} chậm kết nối, đang ưu tiên relay qua TURN.`);
@@ -392,7 +406,8 @@ function createPeer(target){
         makingOffer:false,
         ignoreOffer:false,
         polite,
-        timeoutId: timeoutId
+        timeoutId: timeoutId,
+        startTime: null
     };
 
     peerState[target]=state;
@@ -445,22 +460,33 @@ function createPeer(target){
         }
     };
 
+    pc.oniceconnectionstatechange = () => {
+        console.log(`%c[${target}] iceConnectionState: ${pc.iceConnectionState}`, "color: #0dcaf0");
+    };
+
     pc.onconnectionstatechange = ()=>{
         const statusEl = document.getElementById("status_" + target);
-        const state = pc.connectionState;
-        
+        const currentState = pc.connectionState;
+    
+        console.log(`[${target}] connectionState: ${currentState}`);
+
         if (statusEl) {
-            statusEl.innerText = "Status: " + state;
+            statusEl.innerText = "Status: " + currentState;
             
-            if (state === "connected") {
+            if (currentState === "connected") {
                 statusEl.style.color = "#198754";
                 clearTimeout(timeoutId);
-            } else if (state === "failed") {
+                state.startTime = new Date();
+
+                console.log(`%c[${target}] BẮT ĐẦU cuộc gọi lúc: ${state.startTime.toLocaleTimeString()}`
+                , "background: #198754; color: #fff; padding: 2px;");
+                setTimeout(() => checkCandidateType(pc, target), 2000);
+            } else if (currentState === "failed") {
                 statusEl.style.color = "#dc3545";
                 clearTimeout(timeoutId);
-            } else if (state === "connecting") {
+            } else if (currentState === "connecting") {
                 statusEl.style.color = "#0dcaf0";
-            } else if (state === "disconnected") {
+            } else if (currentState === "disconnected") {
                 statusEl.style.color = "#ffc107"
             }
         }
@@ -556,6 +582,14 @@ function removePeer(name){
 
     const state = peerState[name];
     if(!state) return;
+
+    const endTime = new Date();
+    console.log(`%c[${name}] KẾT THÚC cuộc gọi lúc: ${endTime.toLocaleTimeString()}`,
+    "background: #dc3545; color: #fff; padding: 2px;");
+    if (state.startTime) {
+        const duration = Math.round((endTime - state.startTime) / 1000);
+        console.log(`[${name}] Thời lượng cuộc gọi: ${duration} giây`);
+    }
 
     state.pc.close();
     state.remoteStream = null;
