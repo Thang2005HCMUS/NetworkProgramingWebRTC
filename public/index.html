@@ -164,7 +164,55 @@ video{
 </div>
 
 <script>
-const ws = new WebSocket(`wss://${location.host}`);
+let ws;
+let reconnectTimer = null;
+let heartbeatTimer = null;
+
+function startHeartbeat(){
+    stopHeartbeat();
+    heartbeatTimer = setInterval(()=>{
+        if(ws && ws.readyState === WebSocket.OPEN){
+            ws.send(JSON.stringify({ type: "ping", ts: Date.now() }));
+        }
+    }, 25000);
+}
+
+function stopHeartbeat(){
+    if(heartbeatTimer){
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+    }
+}
+
+function connectWS() {
+    ws = new WebSocket(`wss://${location.host}`);
+
+    ws.addEventListener("open", () => {
+        startHeartbeat();
+        if (myName && roomId) {
+            ws.send(JSON.stringify({ type: "register", name: myName }));
+            ws.send(JSON.stringify({ type: "joinRoom", roomId, name: myName }));
+            addNotice("Đã kết nối lại thành công!");
+        }
+    });
+
+    ws.addEventListener("close", () => {
+        stopHeartbeat();
+        addNotice("Mất kết nối tới server. Đang thử lại...");
+        
+        endAllPeers();
+        members = [];
+        renderMembers();
+        renderGrid();
+
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connectWS, 3000);
+    });
+
+    ws.onmessage = handleMessage;
+}
+
+connectWS();
 
 let myName = "";
 let roomId = "";
@@ -210,13 +258,15 @@ const rtcConfig = {
             credential: '051317' 
         }
     ]
+    //  ],
+    //  iceTransportPolicy: "relay"  //
 };
 
 /* =========================
    WS
 ========================= */
 
-ws.onmessage = async(e)=>{
+async function handleMessage(e){
     const data = JSON.parse(e.data);
 
     switch(data.type){
@@ -259,6 +309,10 @@ ws.onmessage = async(e)=>{
 
         case "candidate":
             await onCandidate(data);
+        break;
+
+        case "pong":
+            // keepalive response
         break;
 
         case "memberLeft": 

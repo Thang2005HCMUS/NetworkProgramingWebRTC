@@ -113,7 +113,8 @@ function leaveCurrentRoom(ws) {
 wss.on('connection', (ws) => {
     clients.set(ws, {
         name: null,
-        roomId: null
+        roomId: null,
+        lastPing: Date.now()
     });
 
     ws.on('message', (message) => {
@@ -129,6 +130,15 @@ wss.on('connection', (ws) => {
         if (!user) return;
 
         switch (data.type) {
+
+            /* =========================
+               ping
+            ========================= */
+            case 'ping': {
+                send(ws, { type: 'pong' });
+                user.lastPing = Date.now();
+                break;
+            }
 
             /* =========================
                register
@@ -154,14 +164,18 @@ wss.on('connection', (ws) => {
                 const name = data.name?.trim();
 
                 if (!roomId || !name) return;
-                if (rooms.has(roomId)){
+
+                // Nếu người dùng có cùng tên đã ở trong phòng, ta ưu tiên kick người cũ ra
+                // để người dùng hiện tại có thể re-join thành công (tránh kẹt tên)
+                if (rooms.has(roomId)) {
                     const room = rooms.get(roomId);
-                    if(room.members.has(name)) {
-                        send(ws, {
-                            type: 'error',
-                            message: `Tên "${name}" đã tồn tại trong phòng ${roomId}. Vui lòng chọn tên khác.`
-                        });
-                        return;
+                    if (room.members.has(name)) {
+                        const oldWs = room.members.get(name);
+                        if (oldWs && oldWs !== ws) {
+                            send(oldWs, { type: 'error', message: 'Bạn đã đăng nhập ở một nơi khác.' });
+                            leaveCurrentRoom(oldWs);
+                            try { oldWs.close(); } catch (e) {}
+                        }
                     }
                 }
 
@@ -289,6 +303,21 @@ wss.on('connection', (ws) => {
 /* =========================
    START
 ========================= */
+
+const interval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        const user = clients.get(ws);
+        if (user && Date.now() - user.lastPing > 40000) {
+            leaveCurrentRoom(ws);
+            clients.delete(ws);
+            return ws.terminate();
+        }
+    });
+}, 10000);
+
+wss.on('close', function close() {
+    clearInterval(interval);
+});
 
 server.listen(3000, () => {
     console.log('HTTPS + WS chạy tại https://localhost:3000');
