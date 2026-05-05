@@ -71,7 +71,7 @@ Phần Front-end (`public/index.html`) đã cấu hình STUN/TURN server ở bi�
 
 * **Test Gọi Nhóm 2 người (1v1):**
   1. Trên 2 máy / thiết bị (hoặc 2 tab trình duyệt ẩn danh) truy cập vào host.
-  2. Tại trang 로그인 (Login), nhập tên khác nhau nhưng cấu hình cùng chung **ID phòng** (VD: `testroom`).
+  2. Tại trang (Login), nhập tên khác nhau nhưng cấu hình cùng chung **ID phòng** (VD: `testroom`).
   3. Ấn "**Vào phòng**" – sau đó hệ thống sẽ hỏi quyền cấp media, hãy xác nhận Cho Phép Camera/Micro.
   4. Một người chủ động (Hoặc bất cứ ai) bấm nút "**Call phòng**". Máy sẽ xử lý đẩy Offer thông qua Signaling WS đến người còn lại – bắt tay thành công lập tức lên 2 khung video cho nhau.
 
