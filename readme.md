@@ -41,19 +41,161 @@ Mở trình duyệt truy cập url này để vào sử dụng. *(Nếu vào chr
 ## 4. Cấu hình dịch vụ TURN / Chạy Coturn
 Phần Front-end (`public/index.html`) đã cấu hình STUN/TURN server ở biến `rtcConfig` hỗ trợ vượt Firewall hay lỗi địa chỉ mạng (NAT Traversal). 
 
-**Cách chạy Coturn server để test**:
-1. Cài đặt Coturn (ví dụ trên môi trường Ubuntu VPS...):
-   ```bash
+### 4.1 Cấu hình AWS instance
+**1 đăng kí tài khoản AWS và tạo 1 instance với ubuntu server**
+
+
+
+**2 tạo Elastic IP để có 1 Public IPv4 cố định**
+
+Ở phần network&Security chọn Elastic IP
+
+<img title="a title" alt="Alt text" src="./images/img.png">
+
+Nhấn vào **Allocate Elastic IP address**  Lúc này 1 giao diện như bên dưới sẽ hiện ra  , Nhấn Allocate để  cấp phát IP cho server
+
+<img title="a title" alt="Alt text" src="./images/img1.png"> 
+
+sau khi được cấp Ip thì ở phần etwork&Security chọn Elastic IP , lúc này sẽ hiện ra danh sách IP được cấp phát, chúng ta chọn 1 IP bằng cách nhấn dấu tick và sau đó nhấn action , chọn Assiciate Elastic IP address để tiến hành liên kết IP này với server 
+<img title="a title" alt="Alt text" src="./images/img2.png"> 
+
+Sau đó chúng ta sẽ bước vào giao diện như bên dưới , ở phần instance chúng ta chọn instance tương ứng với turn server của chúng ta , sau đó chọn Associate, lúc này server của chúng ta đã có Public IPv4
+<img title="a title" alt="Alt text" src="./images/img3.png"> 
+
+**3 Tạo security Group**
+Ở phần network&Security chọn Security Group , chúng ta nhấn vào Create Security Group để tạo Security Group mới
+<img title="a title" alt="Alt text" src="./images/img4.png"> 
+Tiếp theo đó chúng ta thêm các inbound rule, nhấn Add Rule để thêm Rule , chúng ta cần thêm các Rule như sau 
+```
+{
+  "Rule 1": {
+    "type": "Custom UDP",
+    "protocol": "UDP",
+    "Port range": "5349",
+    "source": "Anywhere-IPv4"
+  },
+  "Rule 2": {
+    "type": "Custom TCP",
+    "protocol": "TCP",
+    "Port range": "3478",
+    "source": "Anywhere-IPv4"
+  },
+  "Rule 3": {
+    "type": "Custom UDP",
+    "protocol": "UDP",
+    "Port range": "3478",
+    "source": "Anywhere-IPv4"
+  },
+  "Rule 4": {
+    "type": "Custom TCP",
+    "protocol": "TCP",
+    "Port range": "5349",
+    "source": "Anywhere-IPv4"
+  },
+  "Rule 5": {
+    "type": "Custom UDP",
+    "protocol": "UDP",
+    "Port range": "49152-65535",
+    "source": "Anywhere-IPv4"
+  }
+}
+```
+<img title="a title" alt="Alt text" src="./images/img5.png"> 
+Sau khi đã tạo xong chúng ta sẽ có Inbound Rule của Security Group như bên dưới 
+<img title="a title" alt="Alt text" src="./images/img6.png"> 
+
+**4 Cấu hình security group cho turn server**
+Sau khi chúng ta đã tạo security Group, cần thêm nó vào Turn server 
+
+Ở phần instance chúng ta sẽ có danh sách instance , chọn instance tương ứng với turn server của chúng ta, sau đó chọn action -> security -> change security group
+
+<img title="a title" alt="Alt text" src="./images/img8.png"> 
+Sau khi chọn xong chúng ta sẽ đi đến 1 giao diện như bên dưới 
+
+Ở phần Assocciated security groups chọn security group vừa tạo sau đó nhấn Add Security Group và nhấn Save
+
+<img title="a title" alt="Alt text" src="./images/img9.png"> 
+
+### 4.2 thiết lập turn server
+Sau khi SSH vào server đã thiết lập trên aws tiến hành các bước sau
+**cài đặt coturn**
+  ```bash
    sudo apt update
    sudo apt install coturn
+   sudo systemctl stop coturn
    ```
-2. Chạy dịch vụ rơ-le TURN qua terminal với lệnh sau:
-   ```bash
-   turnserver -a -v -n --user thang:051317 -r mydomain.com
-   ```
-3. Sau khi máy chủ tự chạy hoặc bạn dùng một dịch vụ proxy khác, nhớ sửa lại IP và Port trong `public/index.html` của dự án (tại khối `const rtcConfig = {...}` ) cho phù hợp với server của mình. Mặc định đang thiết lập sẵn tới IP: `54.146.22.145:3478` với thông tin tên đăng nhập `thang`.
+**Cấu hình file turnserver.conf**
+```bash
+sudo mv /etc/turnserver.conf /etc/turnserver.conf.backup
+sudo nano /etc/turnserver.conf
+```
+Sau đó dán nội dung sau vào 
 
+nhớ cấu hình user , Vd user = thang:123456 nghĩa là username là thang , credentical là 123456
+
+relay-IP là Ip private của aws server, có thể xem bằng lệnh **hostname -I**
+
+external-ip là Elastic IP vừa dc cấp phát
+```
+# --- Cấu hình chung ---
+fingerprint
+# Thay bằng tên miền hoặc IP Public của bạn
+realm=my-turn-server
+server-name=turn-server
+
+# --- Ghi log ---
+log-file=/var/log/turnserver/turnserver.log
+no-loopback-peers
+no-multicast-peers
+
+# --- Xác thực ---
+# Lưu ý: nếu dùng static-auth-secret thì bỏ comment dòng này và bỏ qua dòng 'user='
+# static-auth-secret=your_secret_key_here
+user=<USER>:<PASSWORD>
+lt-cred-mech
+cli-password=<PASSWORD>
+
+# --- Cấu hình IP (Dùng cho AWS/Cloud) ---
+listening-ip=0.0.0.0
+# IP private của server AWS (VD: 172.31.90.141)
+relay-ip=<Private IP>
+# IP Public của server AWS
+external-ip=<ELASTIC IP>
+
+# --- Cổng (Phải khớp với Security Group) ---
+min-port=49152
+max-port=65535
+
+# --- Cấu hình an toàn ---
+# Tạm thời để mặc định, nếu sau này có SSL thì cấu hình thêm
+# Bạn có thể bỏ comment nếu muốn bắt buộc dùng TLS/DTLS
+# tls-listening-port=5349
+# cert=/etc/letsencrypt/live/yourdomain/fullchain.pem
+# pkey=/etc/letsencrypt/live/yourdomain/privkey.pem
+
+```
+**Chạy turn server**
+```
+sudo systemctl start coturn
+sudo systemctl enable coturn
+```
+3. Sau khi máy chủ chạy thành công, nhớ sửa lại IP và Port trong `public/index.html` của dự án ở dòng 
+```
+const rtcConfig = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { 
+            urls: 'turn:<Elastic IP của turn server>:3478', 
+            username: <USER>, 
+            credential: <PASSWORD> 
+        }
+    ]
+    //  ],
+    //  iceTransportPolicy: "relay"  //
+};
+```
 ---
+
 
 ## 5. Demo public qua Cloudflare Tunnel
 Để cho phép thiết bị hoặc thành viên khác trên môi trường internet kết nối thử nghiệm, chúng ta sẽ hướng public host `localhost:3000` ra ngoài bằng `cloudflared`.
@@ -63,7 +205,8 @@ Phần Front-end (`public/index.html`) đã cấu hình STUN/TURN server ở bi�
    ```bash
    cloudflared tunnel --url https://localhost:3000 --no-tls-verify
    ```
-3. Tunnel sẽ sinh thành công một đường link ở logs vd như `https://xxxxxx.trycloudflare.com`. Gửi URL đó cho các thành viên cần test hệ thống. 
+3. Tunnel sẽ sinh thành công một đường link ở logs vd như `https://xxxxxx.trycloudflare.com` như trong hình. Gửi URL đó cho các thành viên cần test hệ thống. 
+<img title="a title" alt="Alt text" src="./images/img10.png"> 
 
 ---
 
