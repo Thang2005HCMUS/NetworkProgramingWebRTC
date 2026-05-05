@@ -102,7 +102,7 @@ Tiếp theo đó chúng ta thêm các inbound rule, nhấn Add Rule để thêm 
 ```
 <img title="a title" alt="Alt text" src="./images/img5.png"> 
 Sau khi đã tạo xong chúng ta sẽ có Inbound Rule của Security Group như bên dưới 
-<img title="a title" alt="Alt text" src="./images/img6.png"> 
+<img title="a title" alt="Alt text" src="./images/img7.png"> 
 
 **4 Cấu hình security group cho turn server**
 Sau khi chúng ta đã tạo security Group, cần thêm nó vào Turn server 
